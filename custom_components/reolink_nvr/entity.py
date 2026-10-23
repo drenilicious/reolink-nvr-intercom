@@ -27,7 +27,8 @@ class ReolinkNvrEntity(CoordinatorEntity[ReolinkNvrCoordinator]):
             name=self._channel_name,
             manufacturer="Reolink",
             model=self._channel_model,
-            via_device=(DOMAIN, coordinator.nvr_serial),
+            # Do not use deprecated via_device. The parent NVR association
+            # can be restored using its registered device ID in a later change.
         )
 
     @property
