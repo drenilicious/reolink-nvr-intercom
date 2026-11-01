@@ -125,9 +125,9 @@ A doorbell press entity (for example `binary_sensor.doorbell_visiteur`) can be u
 
 ## About the project
 
-This project started as a personal Home Assistant experiment by **[drenilicious](https://github.com/drenilicious)**, an accountant in Belgium who enjoys home automation but has **no advanced programming background**.
+This project started as a personal Home Assistant experiment by **[drenilicious](https://github.com/drenilicious)**, an accountant from Belgium with absolutely no advanced coding skills, a slightly unreasonable passion for Home Assistant, and ChatGPT as his coding buddy..
 
-A simple idea grew into a challenge: bring the Reolink doorbell's live video, two-way audio and smart-home door controls together in one practical dashboard.
+A simple idea grew into a challenge: bring the Reolink doorbell's live video, two-way audio and smart-home door controls together in one practical dashboard. The philisophy that drives this project: If something doesn't exist, we'll build it. If it breaks, we'll fix it. Eventually.
 
 Much of the development and debugging is done in collaboration with **ChatGPT**, as a coding assistant — or, less formally, a coding buddy. The project owner provides the ideas, tests everything on real hardware, reports what works (and what breaks), and makes the decisions. AI-assisted code is reviewed and tested iteratively; it isn't assumed to be correct just because it compiles.
 
