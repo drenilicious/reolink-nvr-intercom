@@ -542,7 +542,7 @@ class ReolinkCameraCard extends LitElement {
               ${this._fullscreen ? html`
               <button class="control-btn" @click=${this._toggleFullscreenFit}
                 title=${this._fitFullscreen ? "Agrandir l'image" : "Afficher toute l'image"}>
-                <ha-icon icon=${this._fitFullscreen ? "mdi:fit-to-screen" : "mdi:magnify-minus-outline"}></ha-icon>
+                <ha-icon icon=${this._fitFullscreen ? "mdi:magnify-plus-outline" : "mdi:magnify-minus-outline"}></ha-icon>
               </button>
               ` : ""}
               ${this._scale > 1.1
