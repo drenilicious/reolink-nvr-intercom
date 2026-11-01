@@ -4,7 +4,7 @@
  * Features:
  * - WebRTC video via HA's <ha-camera-stream>
  * - PTZ directional pad overlay (translucent, touch-friendly)
- * - Microphone toggle for two-way audio via go2rtc backchannel
+ * - Optional live microphone powered by Reolink Talk (separate integration)
  * - Pinch-to-zoom (CSS transform)
  * - Double-tap fullscreen
  * - Motion indicator badge
@@ -37,6 +37,7 @@ class ReolinkCameraCard extends LitElement {
       hass: { type: Object },
       config: { type: Object },
       _fullscreen: { type: Boolean },
+      _fitFullscreen: { type: Boolean },
       _micActive: { type: Boolean },
       _audioMuted: { type: Boolean },
       _showPtz: { type: Boolean },
@@ -49,6 +50,7 @@ class ReolinkCameraCard extends LitElement {
   constructor() {
     super();
     this._fullscreen = false;
+    this._fitFullscreen = false;
     this._micActive = false;
     this._audioMuted = true;
     this._showPtz = false;
@@ -85,6 +87,11 @@ class ReolinkCameraCard extends LitElement {
       ptz: true,
       show_motion_indicator: true,
       show_microphone: true,
+      talk_camera: null, // Reolink Talk slug, e.g. 'doorbell'
+      stream_select_entity: null, // Select entity controlling stream quality
+      door_button_entity: null, // Optional HA button for door unlatch
+      quick_reply_entity: null, // Optional HA select for Reolink quick replies
+      quick_reply_message: null, // Optional exact option name; otherwise choose
       show_audio: true,
       show_header: true,
       show_fullscreen: true,
@@ -145,10 +152,11 @@ class ReolinkCameraCard extends LitElement {
   }
 
   get _streamQuality() {
+    const selectEntity = this.config?.stream_select_entity;
+    const selected = selectEntity && this.hass?.states?.[selectEntity]?.state;
+    if (selected === "main" || selected === "sub") return selected;
     const state = this._stateObj;
-    return state && state.attributes
-      ? state.attributes.stream_quality || "sub"
-      : "sub";
+    return state?.attributes?.stream_quality || "sub";
   }
 
   get _cameraName() {
@@ -238,6 +246,105 @@ class ReolinkCameraCard extends LitElement {
     this._micActive = false;
   }
 
+  // --- Reolink Talk integration ---
+
+  updated() {
+    // Reolink Talk registers its own custom element and authenticates requests.
+    // We only embed the element; we never handle credentials or microphone data.
+    const host = this.shadowRoot?.getElementById("reolink-talk-button-host");
+    if (!host || !this.config?.talk_camera) return;
+
+    if (!customElements.get("reolink-talk-button")) {
+      // Its JS resource may load after ours on the first page visit.
+      if (!this._waitingForTalkButton) {
+        this._waitingForTalkButton = true;
+        customElements.whenDefined("reolink-talk-button").then(() => {
+          this._waitingForTalkButton = false;
+          if (this.isConnected) this.requestUpdate();
+        });
+      }
+      return;
+    }
+
+    let button = host.querySelector("reolink-talk-button");
+    if (!button) {
+      button = document.createElement("reolink-talk-button");
+      button.setConfig({camera: this.config.talk_camera});
+      button.hass = this.hass;
+      host.appendChild(button);
+    } else {
+      if (button._camera !== this.config.talk_camera) {
+        button._stop?.();
+        button.setConfig({camera: this.config.talk_camera});
+      }
+      button.hass = this.hass;
+    }
+
+    // Reflect the Reolink Talk session state without modifying its audio logic.
+    // The upstream button updates its inline style when connecting/live/idle.
+    const realButton = button.querySelector("button");
+    if (realButton && this._talkObservedButton !== realButton) {
+      this._talkStateObserver?.disconnect();
+      this._talkObservedButton = realButton;
+      const sync = () => {
+        host.classList.toggle("talk-live", Boolean(button._recording && button._wsReady));
+        host.classList.toggle("talk-connecting", Boolean(button._recording && !button._wsReady));
+      };
+      this._talkStateObserver = new MutationObserver(sync);
+      this._talkStateObserver.observe(realButton, {
+        attributes: true,
+        attributeFilter: ["style"],
+      });
+      sync();
+    }
+  }
+
+  // --- Door controls & Reolink native quick replies ---
+
+  async _openDoor() {
+    const entityId = this.config?.door_button_entity;
+    if (!entityId || !entityId.startsWith("button.")) return;
+    if (!window.confirm("Ouvrir la porte d'entrée ?")) return;
+    try {
+      await this.hass.callService("button", "press", {entity_id: entityId});
+    } catch (err) {
+      console.error("Reolink NVR: door action failed", err);
+      window.alert("Impossible d'ouvrir la porte. Consulte les journaux.");
+    }
+  }
+
+  get _quickReplyOptions() {
+    const entityId = this.config?.quick_reply_entity;
+    const state = entityId && this.hass?.states?.[entityId];
+    return Array.isArray(state?.attributes?.options)
+      ? state.attributes.options.filter((opt) => typeof opt === "string")
+      : [];
+  }
+
+  async _sendQuickReply(option) {
+    const entityId = this.config?.quick_reply_entity;
+    if (!entityId?.startsWith("select.") || !option) return;
+    if (!this._quickReplyOptions.includes(option)) {
+      console.warn("Reolink NVR: quick reply is not a supported option", option);
+      return;
+    }
+    try {
+      await this.hass.callService("select", "select_option", {
+        entity_id: entityId,
+        option,
+      });
+    } catch (err) {
+      console.error("Reolink NVR: quick reply failed", err);
+      window.alert("Impossible de jouer la réponse rapide. Consulte les journaux.");
+    }
+  }
+
+  _onQuickReplyChange(event) {
+    const option = event.target.value;
+    event.target.value = "";
+    this._sendQuickReply(option);
+  }
+
   // --- Touch gestures ---
 
   _handleTap(e) {
@@ -249,18 +356,35 @@ class ReolinkCameraCard extends LitElement {
   }
 
   _toggleFullscreen() {
-    if (!this._fullscreen) {
-      const el = this.shadowRoot.querySelector(".card-container");
-      if (el && el.requestFullscreen) {
-        el.requestFullscreen();
+    // HTML dialog's modal top layer escapes Home Assistant's nested
+    // cards, transforms and stacking contexts, including iOS WKWebView.
+    const dialog = this.shadowRoot?.querySelector(".viewer-dialog");
+    if (!dialog) return;
+    try {
+      if (dialog.matches(":modal")) {
+        dialog.close();
+        dialog.show(); // Reopen inline; keep the original live stream.
+        this._fullscreen = false;
+      } else {
+        dialog.close(); // Close the inline (nonmodal) dialog first.
+        dialog.showModal();
+        this._fullscreen = true;
       }
-      this._fullscreen = true;
-    } else {
-      if (document.exitFullscreen) {
-        document.exitFullscreen();
-      }
+    } catch (err) {
+      console.error("Reolink NVR: unable to change modal viewer", err);
+      if (!dialog.open) dialog.show();
       this._fullscreen = false;
     }
+  }
+
+  _toggleFullscreenFit() {
+    this._fitFullscreen = !this._fitFullscreen;
+  }
+
+  _onDialogCancel(event) {
+    // Esc on desktop must restore the inline card, not hide it.
+    event.preventDefault();
+    this._toggleFullscreen();
   }
 
   _handleTouchStart(e) {
@@ -300,16 +424,27 @@ class ReolinkCameraCard extends LitElement {
 
   // --- Stream quality ---
 
-  _toggleStreamQuality() {
-    const base = this.config.entity.replace("camera.", "");
-    const pattern = base.replace("_camera", "");
-    const selectEntity = `select.${pattern}_stream_quality`;
-
-    const newQuality = this._streamQuality === "sub" ? "main" : "sub";
-    this.hass.callService("select", "select_option", {
-      entity_id: selectEntity,
-      option: newQuality,
-    });
+  async _toggleStreamQuality() {
+    // Explicit entity avoids relying on generated entity IDs (which can vary
+    // depending on translations and entity registry naming).
+    const selectEntity = this.config?.stream_select_entity;
+    if (!selectEntity || !this.hass?.states?.[selectEntity]) {
+      console.warn("Reolink NVR: set stream_select_entity to the correct select entity");
+      return;
+    }
+    const next = this._streamQuality === "sub" ? "main" : "sub";
+    if (!(this.hass.states[selectEntity].attributes.options || []).includes(next)) {
+      console.warn("Reolink NVR: stream option not available", next);
+      return;
+    }
+    try {
+      await this.hass.callService("select", "select_option", {
+        entity_id: selectEntity,
+        option: next,
+      });
+    } catch (err) {
+      console.error("Reolink NVR: stream quality change failed", err);
+    }
   }
 
   // --- Render ---
@@ -327,15 +462,18 @@ class ReolinkCameraCard extends LitElement {
     }
 
     const showPtz = this.config.ptz && this._hasPtz;
-    const showMic = this.config.show_microphone && this._hasSpeaker;
+    // The legacy mic button cannot send sound to the NVR. Only expose the
+    // working Reolink Talk control when an explicit camera slug is configured.
+    const showMic = this.config.show_microphone && !!this.config.talk_camera;
     const motionActive = this._motionDetected;
 
     const videoTransform = `scale(${this._scale}) translate(${this._translateX}px, ${this._translateY}px)`;
 
     return html`
       <ha-card>
+        <dialog class="viewer-dialog ${this._fitFullscreen ? "fit-image" : ""}" open @cancel=${this._onDialogCancel}>
         <div
-          class="card-container ${this._fullscreen ? "fullscreen" : ""}"
+          class="card-container"
           @touchstart=${this._handleTouchStart}
           @touchmove=${this._handleTouchMove}
           @touchend=${this._handleTouchEnd}
@@ -348,12 +486,7 @@ class ReolinkCameraCard extends LitElement {
               ${motionActive
                 ? html`<span class="badge motion-badge">Motion</span>`
                 : ""}
-              <span
-                class="badge quality-badge"
-                @click=${this._toggleStreamQuality}
-              >
-                ${this._streamQuality === "sub" ? "SD" : "HD"}
-              </span>
+              <!-- Stream quality badge omitted: official Reolink camera entity sets the stream profile -->
             </div>
           </div>
           ` : ""}
@@ -362,7 +495,7 @@ class ReolinkCameraCard extends LitElement {
           <div
             class="video-container"
             @click=${this._handleTap}
-            style="transform: ${videoTransform}; transform-origin: center center;"
+            style="transform: ${this._fullscreen ? "none" : videoTransform}; transform-origin: center center;"
           >
             <ha-camera-stream
               .hass=${this.hass}
@@ -391,21 +524,7 @@ class ReolinkCameraCard extends LitElement {
               </button>
               ` : ""}
               ${showMic
-                ? html`
-                    <button
-                      class="control-btn mic-btn ${this._micActive
-                        ? "active"
-                        : ""}"
-                      @click=${this._toggleMic}
-                      title="Two-way audio"
-                    >
-                      <ha-icon
-                        icon=${this._micActive
-                          ? "mdi:microphone"
-                          : "mdi:microphone-off"}
-                      ></ha-icon>
-                    </button>
-                  `
+                ? html`<div id="reolink-talk-button-host" class="talk-button-host"></div>`
                 : ""}
               ${this.config.show_fullscreen ? html`
               <button
@@ -420,6 +539,12 @@ class ReolinkCameraCard extends LitElement {
                 ></ha-icon>
               </button>
               ` : ""}
+              ${this._fullscreen ? html`
+              <button class="control-btn" @click=${this._toggleFullscreenFit}
+                title=${this._fitFullscreen ? "Agrandir l'image" : "Afficher toute l'image"}>
+                <ha-icon icon=${this._fitFullscreen ? "mdi:magnify-plus-outline" : "mdi:magnify-minus-outline"}></ha-icon>
+              </button>
+              ` : ""}
               ${this._scale > 1.1
                 ? html`
                     <button
@@ -431,6 +556,28 @@ class ReolinkCameraCard extends LitElement {
                     </button>
                   `
                 : ""}
+            </div>
+
+            <!-- Door controls and quick replies on the right -->
+            <div class="controls-right">
+              ${this.config.door_button_entity ? html`
+                <button class="control-btn" @click=${this._openDoor}
+                  title="Ouvrir la porte (confirmation requise)">
+                  <ha-icon icon="mdi:door-open"></ha-icon>
+                </button>
+              ` : ""}
+              ${this.config.quick_reply_entity ? html`
+                <div class="quick-reply-wrap" title="Réponse rapide Reolink">
+                  <ha-icon icon="mdi:message-reply-text"></ha-icon>
+                  <select aria-label="Jouer une réponse rapide" .value=${""}
+                    @change=${this._onQuickReplyChange}>
+                    <option value="" disabled selected>Réponse rapide…</option>
+                    ${this._quickReplyOptions.map(option => html`
+                      <option value=${option}>${option}</option>
+                    `)}
+                  </select>
+                </div>
+              ` : ""}
             </div>
 
             <!-- PTZ pad -->
@@ -501,6 +648,7 @@ class ReolinkCameraCard extends LitElement {
               : ""}
           </div>
         </div>
+        </dialog>
       </ha-card>
     `;
   }
@@ -524,14 +672,74 @@ class ReolinkCameraCard extends LitElement {
         overflow: hidden;
       }
 
-      .card-container.fullscreen {
+      /* Dialog is an ordinary card wrapper until showModal puts it in the
+         browser's top layer. Top-layer rendering avoids iOS fixed-position
+         containment by ancestor transforms/backdrop filters. */
+      .viewer-dialog {
+        position: relative;
+        display: block;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        width: 100%;
+        max-width: none;
+        max-height: none;
+        background: transparent;
+        color: inherit;
+        overflow: hidden;
+      }
+
+      .viewer-dialog:modal {
         position: fixed;
-        top: 0;
-        left: 0;
+        inset: 0;
+        margin: 0;
+        padding: 0;
         width: 100vw;
         height: 100vh;
-        z-index: 9999;
+        height: 100dvh;
+        max-width: 100vw;
+        max-height: 100dvh;
+        background: #000;
+        overflow: hidden;
+      }
+
+      .viewer-dialog::backdrop {
+        background: #000;
+      }
+
+      .viewer-dialog:modal .card-container {
+        width: 100%;
+        height: 100%;
         aspect-ratio: auto;
+        overflow: hidden;
+      }
+
+      .viewer-dialog:modal .video-container {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: min(100vw, calc(100dvh * 16 / 9));
+        height: auto;
+        aspect-ratio: 16 / 9;
+        transform: translate(-50%, -50%) !important;
+        overflow: hidden;
+      }
+
+      .viewer-dialog:modal ha-camera-stream {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+
+      /* Portrait phones: enlarge the full image while allowing users to
+         switch back to letterboxed, uncropped viewing. Cropping is intentional
+         and never changes the stream or camera audio controls. */
+      @media (orientation: portrait) and (max-width: 700px) {
+        .viewer-dialog:modal:not(.fit-image) .video-container {
+          transform: translate(-50%, -50%) scale(1.85) !important;
+          transform-origin: center center;
+        }
       }
 
       /* Header */
@@ -630,10 +838,22 @@ class ReolinkCameraCard extends LitElement {
         z-index: 3;
       }
 
-      .controls-left {
+      .controls-left,
+      .controls-right {
         display: flex;
         flex-direction: column;
         gap: 8px;
+        min-width: 0;
+      }
+
+      .controls-right {
+        align-items: flex-end;
+        margin-left: auto;
+        max-width: min(48%, 205px);
+      }
+
+      .controls-right .quick-reply-wrap {
+        max-width: 100%;
       }
 
       .control-btn {
@@ -674,6 +894,66 @@ class ReolinkCameraCard extends LitElement {
         50% {
           box-shadow: 0 0 0 10px rgba(76, 175, 80, 0);
         }
+      }
+
+      .talk-button-host {
+        width: 48px;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      /* Slash while idle/connecting, remove only after live talk is ready.
+         The actual button and its status colors belong to Reolink Talk. */
+      .talk-button-host reolink-talk-button button {
+        position: relative;
+        width: 44px !important;
+        height: 44px !important;
+        background: rgba(255,255,255,0.2) !important;
+        backdrop-filter: blur(4px);
+      }
+      .talk-button-host.talk-connecting reolink-talk-button button {
+        background: rgba(58,123,253,0.85) !important;
+      }
+      .talk-button-host.talk-live reolink-talk-button button {
+        background: rgba(220,40,40,0.9) !important;
+      }
+
+      .talk-button-host:not(.talk-live) reolink-talk-button button::after {
+        content: "";
+        position: absolute;
+        width: 27px;
+        height: 2px;
+        background: currentColor;
+        transform: rotate(-45deg);
+        pointer-events: none;
+        border-radius: 1px;
+      }
+
+      .quick-reply-wrap {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        max-width: 190px;
+        padding: 8px;
+        background: rgba(0, 0, 0, 0.6);
+        border-radius: 12px;
+        color: #fff;
+      }
+      .quick-reply-wrap select {
+        min-width: 0;
+        width: 140px;
+        max-width: 100%;
+        color: #fff;
+        background: rgba(255, 255, 255, 0.12);
+        border: none;
+        border-radius: 6px;
+        padding: 5px;
+      }
+      .quick-reply-wrap option {
+        color: #111;
+        background: #fff;
       }
 
       /* PTZ overlay */
@@ -750,6 +1030,9 @@ class ReolinkCameraCard extends LitElement {
   disconnectedCallback() {
     super.disconnectedCallback();
     this._stopMic();
+    this._talkStateObserver?.disconnect();
+    this._talkStateObserver = null;
+    this._talkObservedButton = null;
     if (this._ptzInterval) {
       clearInterval(this._ptzInterval);
     }
@@ -796,6 +1079,22 @@ class ReolinkCameraCardEditor extends LitElement {
         selector: { boolean: {} },
       },
       {
+        name: "talk_camera",
+        selector: { text: {} },
+      },
+      {
+        name: "stream_select_entity",
+        selector: { entity: { domain: "select" } },
+      },
+      {
+        name: "door_button_entity",
+        selector: { entity: { domain: "button" } },
+      },
+      {
+        name: "quick_reply_entity",
+        selector: { entity: { domain: "select" } },
+      },
+      {
         name: "show_audio",
         selector: { boolean: {} },
       },
@@ -818,6 +1117,10 @@ class ReolinkCameraCardEditor extends LitElement {
       ptz: this._config.ptz !== false,
       show_motion_indicator: this._config.show_motion_indicator !== false,
       show_microphone: this._config.show_microphone !== false,
+      talk_camera: this._config.talk_camera || "",
+      stream_select_entity: this._config.stream_select_entity || "",
+      door_button_entity: this._config.door_button_entity || "",
+      quick_reply_entity: this._config.quick_reply_entity || "",
       show_audio: this._config.show_audio !== false,
       show_header: this._config.show_header !== false,
       show_fullscreen: this._config.show_fullscreen !== false,
@@ -833,7 +1136,11 @@ class ReolinkCameraCardEditor extends LitElement {
             entity: "Camera Entity",
             ptz: "Show PTZ Controls",
             show_motion_indicator: "Show Motion Indicator",
-            show_microphone: "Show Microphone Button",
+            show_microphone: "Show Reolink Talk Microphone",
+            talk_camera: "Reolink Talk Camera Slug (e.g. doorbell)",
+            stream_select_entity: "Video Stream Quality Select Entity",
+            door_button_entity: "Door Open Button Entity",
+            quick_reply_entity: "Reolink Play Quick Reply Select Entity",
             show_audio: "Show Audio Toggle",
             show_header: "Show Header Bar",
             show_fullscreen: "Show Fullscreen Button",
