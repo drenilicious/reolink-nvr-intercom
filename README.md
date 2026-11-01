@@ -123,6 +123,16 @@ A doorbell press entity (for example `binary_sensor.doorbell_visiteur`) can be u
 - Video stream quality and the official Reolink camera's `Net` / `Fluide` profiles should not be confused with `reolink_nvr`'s own `main` / `sub` select.
 - Model support beyond the test environment is not independently confirmed.
 
+## About the project
+
+This project started as a personal Home Assistant experiment by **[drenilicious](https://github.com/drenilicious)**, an accountant in Belgium who enjoys home automation but has **no advanced programming background**.
+
+A simple idea grew into a challenge: bring the Reolink doorbell's live video, two-way audio and smart-home door controls together in one practical dashboard.
+
+Much of the development and debugging is done in collaboration with **ChatGPT**, as a coding assistant — or, less formally, a coding buddy. The project owner provides the ideas, tests everything on real hardware, reports what works (and what breaks), and makes the decisions. AI-assisted code is reviewed and tested iteratively; it isn't assumed to be correct just because it compiles.
+
+**Powered by curiosity, coffee, plenty of trial and error, and one increasingly busy doorbell.** 😄
+
 ## Contributing / feedback
 
 Issues and pull requests for **this fork** belong at [drenilicious/reolink-nvr-intercom](https://github.com/drenilicious/reolink-nvr-intercom/issues). Please include the Home Assistant version, NVR model and firmware, camera model, relevant logs **with passwords, tokens, serial numbers, and network details removed**, and how to reproduce the problem.
