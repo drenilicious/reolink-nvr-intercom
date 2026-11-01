@@ -674,16 +674,25 @@ class ReolinkCameraCard extends LitElement {
         background: #000;
       }
 
-      /* Keep the native video element centered without stretching to fill. */
+      /* Native fullscreen and iOS WebView fallback: letterbox the stream.
+         Do not stretch the camera surface to the viewport height. */
       .card-container:fullscreen .video-container,
       .card-container.fullscreen .video-container {
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: min(100vw, calc(100dvh * 16 / 9));
+        height: auto;
+        aspect-ratio: 16 / 9;
+        max-width: 100%;
+        max-height: 100%;
+        overflow: hidden;
+        transform: translate(-50%, -50%) !important;
       }
 
       .card-container:fullscreen ha-camera-stream,
       .card-container.fullscreen ha-camera-stream {
+        display: block;
         width: 100%;
         height: 100%;
         object-fit: contain;
