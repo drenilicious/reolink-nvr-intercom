@@ -272,6 +272,23 @@ class ReolinkCameraCard extends LitElement {
       }
       button.hass = this.hass;
     }
+
+    // Reflect the Reolink Talk session state without modifying its audio logic.
+    // The upstream button updates its inline style when connecting/live/idle.
+    const realButton = button.querySelector("button");
+    if (realButton && this._talkObservedButton !== realButton) {
+      this._talkStateObserver?.disconnect();
+      this._talkObservedButton = realButton;
+      const sync = () => host.classList.toggle(
+        "talk-live", Boolean(button._recording && button._wsReady)
+      );
+      this._talkStateObserver = new MutationObserver(sync);
+      this._talkStateObserver.observe(realButton, {
+        attributes: true,
+        attributeFilter: ["style"],
+      });
+      sync();
+    }
   }
 
   // --- Touch gestures ---
@@ -284,19 +301,35 @@ class ReolinkCameraCard extends LitElement {
     this._lastTap = now;
   }
 
-  _toggleFullscreen() {
-    if (!this._fullscreen) {
-      const el = this.shadowRoot.querySelector(".card-container");
-      if (el && el.requestFullscreen) {
-        el.requestFullscreen();
-      }
-      this._fullscreen = true;
-    } else {
-      if (document.exitFullscreen) {
-        document.exitFullscreen();
-      }
-      this._fullscreen = false;
+  async _toggleFullscreen() {
+    const el = this.shadowRoot?.querySelector(".card-container");
+    if (!el) return;
+
+    // Prefer the browser's fullscreen API. Avoid applying a second fixed-size
+    // layout on top of native fullscreen, which can distort the camera image.
+    if (document.fullscreenElement === el) {
+      await document.exitFullscreen();
+      return;
     }
+    if (this._fullscreen && document.fullscreenElement !== el) {
+      this._fullscreen = false;
+      return;
+    }
+    if (typeof el.requestFullscreen === "function") {
+      try {
+        await el.requestFullscreen();
+        this._fullscreen = true;
+        return;
+      } catch (err) {
+        console.warn("Reolink NVR: native fullscreen not available", err);
+      }
+    }
+    // Fallback for iOS WebViews without element fullscreen support.
+    this._fullscreen = true;
+  }
+
+  _onFullscreenChange() {
+    this._fullscreen = document.fullscreenElement === this.shadowRoot?.querySelector(".card-container");
   }
 
   _handleTouchStart(e) {
@@ -373,7 +406,8 @@ class ReolinkCameraCard extends LitElement {
     return html`
       <ha-card>
         <div
-          class="card-container ${this._fullscreen ? "fullscreen" : ""}"
+          class="card-container ${this._fullscreen && !document.fullscreenElement ? "fullscreen" : ""}"
+          @fullscreenchange=${this._onFullscreenChange}
           @touchstart=${this._handleTouchStart}
           @touchmove=${this._handleTouchMove}
           @touchend=${this._handleTouchEnd}
@@ -400,7 +434,7 @@ class ReolinkCameraCard extends LitElement {
           <div
             class="video-container"
             @click=${this._handleTap}
-            style="transform: ${videoTransform}; transform-origin: center center;"
+            style="transform: ${this._fullscreen ? "none" : videoTransform}; transform-origin: center center;"
           >
             <ha-camera-stream
               .hass=${this.hass}
@@ -548,14 +582,31 @@ class ReolinkCameraCard extends LitElement {
         overflow: hidden;
       }
 
+      .card-container:fullscreen,
       .card-container.fullscreen {
         position: fixed;
-        top: 0;
-        left: 0;
+        inset: 0;
         width: 100vw;
         height: 100vh;
+        height: 100dvh;
         z-index: 9999;
         aspect-ratio: auto;
+        background: #000;
+      }
+
+      /* Keep the native video element centered without stretching to fill. */
+      .card-container:fullscreen .video-container,
+      .card-container.fullscreen .video-container {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .card-container:fullscreen ha-camera-stream,
+      .card-container.fullscreen ha-camera-stream {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
       }
 
       /* Header */
@@ -708,6 +759,23 @@ class ReolinkCameraCard extends LitElement {
         justify-content: center;
       }
 
+      /* Slash while idle/connecting, remove only after live talk is ready.
+         The actual button and its status colors belong to Reolink Talk. */
+      .talk-button-host reolink-talk-button button {
+        position: relative;
+      }
+
+      .talk-button-host:not(.talk-live) reolink-talk-button button::after {
+        content: "";
+        position: absolute;
+        width: 27px;
+        height: 2px;
+        background: currentColor;
+        transform: rotate(-45deg);
+        pointer-events: none;
+        border-radius: 1px;
+      }
+
       /* PTZ overlay */
       .ptz-overlay {
         display: flex;
@@ -782,6 +850,9 @@ class ReolinkCameraCard extends LitElement {
   disconnectedCallback() {
     super.disconnectedCallback();
     this._stopMic();
+    this._talkStateObserver?.disconnect();
+    this._talkStateObserver = null;
+    this._talkObservedButton = null;
     if (this._ptzInterval) {
       clearInterval(this._ptzInterval);
     }
