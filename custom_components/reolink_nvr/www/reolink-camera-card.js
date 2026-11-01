@@ -483,12 +483,7 @@ class ReolinkCameraCard extends LitElement {
               ${motionActive
                 ? html`<span class="badge motion-badge">Motion</span>`
                 : ""}
-              <span
-                class="badge quality-badge"
-                @click=${this._toggleStreamQuality}
-              >
-                ${this._streamQuality === "sub" ? "SD" : "HD"}
-              </span>
+              <!-- Stream quality badge omitted: official Reolink camera entity sets the stream profile -->
             </div>
           </div>
           ` : ""}
@@ -528,24 +523,6 @@ class ReolinkCameraCard extends LitElement {
               ${showMic
                 ? html`<div id="reolink-talk-button-host" class="talk-button-host"></div>`
                 : ""}
-              ${this.config.door_button_entity ? html`
-                <button class="control-btn" @click=${this._openDoor}
-                  title="Ouvrir la porte (confirmation requise)">
-                  <ha-icon icon="mdi:door-open"></ha-icon>
-                </button>
-              ` : ""}
-              ${this.config.quick_reply_entity ? html`
-                <div class="quick-reply-wrap" title="Réponse rapide Reolink">
-                  <ha-icon icon="mdi:message-reply-text"></ha-icon>
-                  <select aria-label="Jouer une réponse rapide" .value=${""}
-                    @change=${this._onQuickReplyChange}>
-                    <option value="" disabled selected>Réponse rapide…</option>
-                    ${this._quickReplyOptions.map(option => html`
-                      <option value=${option}>${option}</option>
-                    `)}
-                  </select>
-                </div>
-              ` : ""}
               ${this.config.show_fullscreen ? html`
               <button
                 class="control-btn"
@@ -570,6 +547,28 @@ class ReolinkCameraCard extends LitElement {
                     </button>
                   `
                 : ""}
+            </div>
+
+            <!-- Door controls and quick replies on the right -->
+            <div class="controls-right">
+              ${this.config.door_button_entity ? html`
+                <button class="control-btn" @click=${this._openDoor}
+                  title="Ouvrir la porte (confirmation requise)">
+                  <ha-icon icon="mdi:door-open"></ha-icon>
+                </button>
+              ` : ""}
+              ${this.config.quick_reply_entity ? html`
+                <div class="quick-reply-wrap" title="Réponse rapide Reolink">
+                  <ha-icon icon="mdi:message-reply-text"></ha-icon>
+                  <select aria-label="Jouer une réponse rapide" .value=${""}
+                    @change=${this._onQuickReplyChange}>
+                    <option value="" disabled selected>Réponse rapide…</option>
+                    ${this._quickReplyOptions.map(option => html`
+                      <option value=${option}>${option}</option>
+                    `)}
+                  </select>
+                </div>
+              ` : ""}
             </div>
 
             <!-- PTZ pad -->
@@ -786,10 +785,22 @@ class ReolinkCameraCard extends LitElement {
         z-index: 3;
       }
 
-      .controls-left {
+      .controls-left,
+      .controls-right {
         display: flex;
         flex-direction: column;
         gap: 8px;
+        min-width: 0;
+      }
+
+      .controls-right {
+        align-items: flex-end;
+        margin-left: auto;
+        max-width: min(48%, 205px);
+      }
+
+      .controls-right .quick-reply-wrap {
+        max-width: 100%;
       }
 
       .control-btn {
@@ -879,7 +890,8 @@ class ReolinkCameraCard extends LitElement {
       }
       .quick-reply-wrap select {
         min-width: 0;
-        width: 145px;
+        width: 140px;
+        max-width: 100%;
         color: #fff;
         background: rgba(255, 255, 255, 0.12);
         border: none;
