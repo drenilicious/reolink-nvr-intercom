@@ -89,8 +89,7 @@ class ReolinkCameraCard extends LitElement {
       stream_select_entity: null, // Select entity controlling stream quality
       door_button_entity: null, // Optional HA button for door unlatch
       quick_reply_entity: null, // Optional HA select for Reolink quick replies
-      quick_reply_message: null, // Reserved for backwards compatibility
-      quick_reply_messages: [], // Exactly named quick replies, maximum two
+      quick_reply_message: null, // Optional exact option name; otherwise choose
       show_audio: true,
       show_header: true,
       show_fullscreen: true,
@@ -318,15 +317,6 @@ class ReolinkCameraCard extends LitElement {
     return Array.isArray(state?.attributes?.options)
       ? state.attributes.options.filter((opt) => typeof opt === "string")
       : [];
-  }
-
-  get _selectedQuickReplies() {
-    const available = this._quickReplyOptions;
-    const configured = this.config?.quick_reply_messages;
-    if (!Array.isArray(configured) || !configured.length) return [];
-    return [...new Set(configured)]
-      .filter(name => typeof name === "string" && available.includes(name))
-      .slice(0, 2);
   }
 
   async _sendQuickReply(option) {
@@ -568,18 +558,15 @@ class ReolinkCameraCard extends LitElement {
                 </button>
               ` : ""}
               ${this.config.quick_reply_entity ? html`
-                <div class="quick-reply-actions" title="Réponses rapides Reolink">
-                  ${this._selectedQuickReplies.length ? this._selectedQuickReplies.map(option => html`
-                    <button class="quick-reply-action" title=${option}
-                      @click=${() => this._sendQuickReply(option)}>
-                      <ha-icon icon="mdi:message-reply-text"></ha-icon>
-                      <span>${option}</span>
-                    </button>
-                  `) : html`
-                    <span class="quick-reply-hint" title="Vérifier les messages Reolink et recharger l'intégration Reolink">
-                      Aucune réponse rapide configurée
-                    </span>
-                  `}
+                <div class="quick-reply-wrap" title="Réponse rapide Reolink">
+                  <ha-icon icon="mdi:message-reply-text"></ha-icon>
+                  <select aria-label="Jouer une réponse rapide" .value=${""}
+                    @change=${this._onQuickReplyChange}>
+                    <option value="" disabled selected>Réponse rapide…</option>
+                    ${this._quickReplyOptions.map(option => html`
+                      <option value=${option}>${option}</option>
+                    `)}
+                  </select>
                 </div>
               ` : ""}
             </div>
@@ -688,21 +675,11 @@ class ReolinkCameraCard extends LitElement {
       }
 
       /* Keep the native video element centered without stretching to fill. */
-      .card-container:fullscreen,
-      .card-container.fullscreen {
+      .card-container:fullscreen .video-container,
+      .card-container.fullscreen .video-container {
         display: flex;
         align-items: center;
         justify-content: center;
-      }
-      /* Keep the iPhone fullscreen fallback from stretching the video like a wallpaper. */
-      .card-container:fullscreen .video-container,
-      .card-container.fullscreen .video-container {
-        width: min(100vw, calc(100dvh * 16 / 9));
-        height: auto;
-        aspect-ratio: 16 / 9;
-        max-height: 100dvh;
-        flex: 0 0 auto;
-        overflow: hidden;
       }
 
       .card-container:fullscreen ha-camera-stream,
@@ -822,7 +799,7 @@ class ReolinkCameraCard extends LitElement {
         max-width: min(48%, 205px);
       }
 
-      .controls-right .quick-reply-actions {
+      .controls-right .quick-reply-wrap {
         max-width: 100%;
       }
 
@@ -901,40 +878,29 @@ class ReolinkCameraCard extends LitElement {
         border-radius: 1px;
       }
 
-      .quick-reply-actions {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-end;
-        gap: 8px;
-        width: 100%;
-      }
-      .quick-reply-action {
+      .quick-reply-wrap {
         display: flex;
         align-items: center;
-        justify-content: flex-end;
-        gap: 7px;
-        border: none;
-        border-radius: 12px;
-        padding: 9px 10px;
-        max-width: 100%;
-        min-height: 44px;
-        background: rgba(50, 50, 50, 0.78);
-        color: #fff;
-        cursor: pointer;
-        font: inherit;
-      }
-      .quick-reply-action span {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-      .quick-reply-hint {
-        font-size: 11px;
-        max-width: 160px;
+        gap: 4px;
+        max-width: 190px;
         padding: 8px;
-        border-radius: 10px;
+        background: rgba(0, 0, 0, 0.6);
+        border-radius: 12px;
         color: #fff;
-        background: rgba(50, 50, 50, 0.75);
+      }
+      .quick-reply-wrap select {
+        min-width: 0;
+        width: 140px;
+        max-width: 100%;
+        color: #fff;
+        background: rgba(255, 255, 255, 0.12);
+        border: none;
+        border-radius: 6px;
+        padding: 5px;
+      }
+      .quick-reply-wrap option {
+        color: #111;
+        background: #fff;
       }
 
       /* PTZ overlay */
@@ -1076,10 +1042,6 @@ class ReolinkCameraCardEditor extends LitElement {
         selector: { entity: { domain: "select" } },
       },
       {
-        name: "quick_reply_messages",
-        selector: { text: { multiple: true } },
-      },
-      {
         name: "show_audio",
         selector: { boolean: {} },
       },
@@ -1106,7 +1068,6 @@ class ReolinkCameraCardEditor extends LitElement {
       stream_select_entity: this._config.stream_select_entity || "",
       door_button_entity: this._config.door_button_entity || "",
       quick_reply_entity: this._config.quick_reply_entity || "",
-      quick_reply_messages: this._config.quick_reply_messages || [],
       show_audio: this._config.show_audio !== false,
       show_header: this._config.show_header !== false,
       show_fullscreen: this._config.show_fullscreen !== false,
@@ -1127,7 +1088,6 @@ class ReolinkCameraCardEditor extends LitElement {
             stream_select_entity: "Video Stream Quality Select Entity",
             door_button_entity: "Door Open Button Entity",
             quick_reply_entity: "Reolink Play Quick Reply Select Entity",
-            quick_reply_messages: "Exact names for up to two quick replies",
             show_audio: "Show Audio Toggle",
             show_header: "Show Header Bar",
             show_fullscreen: "Show Fullscreen Button",
