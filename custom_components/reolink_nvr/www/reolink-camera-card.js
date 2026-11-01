@@ -353,35 +353,32 @@ class ReolinkCameraCard extends LitElement {
     this._lastTap = now;
   }
 
-  async _toggleFullscreen() {
-    const el = this.shadowRoot?.querySelector(".card-container");
-    if (!el) return;
-
-    // Prefer the browser's fullscreen API. Avoid applying a second fixed-size
-    // layout on top of native fullscreen, which can distort the camera image.
-    if (document.fullscreenElement === el) {
-      await document.exitFullscreen();
-      return;
-    }
-    if (this._fullscreen && document.fullscreenElement !== el) {
-      this._fullscreen = false;
-      return;
-    }
-    if (typeof el.requestFullscreen === "function") {
-      try {
-        await el.requestFullscreen();
+  _toggleFullscreen() {
+    // HTML dialog's modal top layer escapes Home Assistant's nested
+    // cards, transforms and stacking contexts, including iOS WKWebView.
+    const dialog = this.shadowRoot?.querySelector(".viewer-dialog");
+    if (!dialog) return;
+    try {
+      if (dialog.matches(":modal")) {
+        dialog.close();
+        dialog.show(); // Reopen inline; keep the original live stream.
+        this._fullscreen = false;
+      } else {
+        dialog.close(); // Close the inline (nonmodal) dialog first.
+        dialog.showModal();
         this._fullscreen = true;
-        return;
-      } catch (err) {
-        console.warn("Reolink NVR: native fullscreen not available", err);
       }
+    } catch (err) {
+      console.error("Reolink NVR: unable to change modal viewer", err);
+      if (!dialog.open) dialog.show();
+      this._fullscreen = false;
     }
-    // Fallback for iOS WebViews without element fullscreen support.
-    this._fullscreen = true;
   }
 
-  _onFullscreenChange() {
-    this._fullscreen = document.fullscreenElement === this.shadowRoot?.querySelector(".card-container");
+  _onDialogCancel(event) {
+    // Esc on desktop must restore the inline card, not hide it.
+    event.preventDefault();
+    this._toggleFullscreen();
   }
 
   _handleTouchStart(e) {
@@ -468,9 +465,9 @@ class ReolinkCameraCard extends LitElement {
 
     return html`
       <ha-card>
+        <dialog class="viewer-dialog" open @cancel=${this._onDialogCancel}>
         <div
-          class="card-container ${this._fullscreen && !document.fullscreenElement ? "fullscreen" : ""}"
-          @fullscreenchange=${this._onFullscreenChange}
+          class="card-container"
           @touchstart=${this._handleTouchStart}
           @touchmove=${this._handleTouchMove}
           @touchend=${this._handleTouchEnd}
@@ -639,6 +636,7 @@ class ReolinkCameraCard extends LitElement {
               : ""}
           </div>
         </div>
+        </dialog>
       </ha-card>
     `;
   }
@@ -662,36 +660,60 @@ class ReolinkCameraCard extends LitElement {
         overflow: hidden;
       }
 
-      .card-container:fullscreen,
-      .card-container.fullscreen {
+      /* Dialog is an ordinary card wrapper until showModal puts it in the
+         browser's top layer. Top-layer rendering avoids iOS fixed-position
+         containment by ancestor transforms/backdrop filters. */
+      .viewer-dialog {
+        position: relative;
+        display: block;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        width: 100%;
+        max-width: none;
+        max-height: none;
+        background: transparent;
+        color: inherit;
+        overflow: hidden;
+      }
+
+      .viewer-dialog:modal {
         position: fixed;
         inset: 0;
+        margin: 0;
+        padding: 0;
         width: 100vw;
         height: 100vh;
         height: 100dvh;
-        z-index: 9999;
-        aspect-ratio: auto;
+        max-width: 100vw;
+        max-height: 100dvh;
+        background: #000;
+        overflow: hidden;
+      }
+
+      .viewer-dialog::backdrop {
         background: #000;
       }
 
-      /* Native fullscreen and iOS WebView fallback: letterbox the stream.
-         Do not stretch the camera surface to the viewport height. */
-      .card-container:fullscreen .video-container,
-      .card-container.fullscreen .video-container {
+      .viewer-dialog:modal .card-container {
+        width: 100%;
+        height: 100%;
+        aspect-ratio: auto;
+        overflow: hidden;
+      }
+
+      .viewer-dialog:modal .video-container {
         position: absolute;
         top: 50%;
         left: 50%;
         width: min(100vw, calc(100dvh * 16 / 9));
         height: auto;
         aspect-ratio: 16 / 9;
-        max-width: 100%;
-        max-height: 100%;
-        overflow: hidden;
         transform: translate(-50%, -50%) !important;
+        overflow: hidden;
       }
 
-      .card-container:fullscreen ha-camera-stream,
-      .card-container.fullscreen ha-camera-stream {
+      .viewer-dialog:modal ha-camera-stream {
         display: block;
         width: 100%;
         height: 100%;
