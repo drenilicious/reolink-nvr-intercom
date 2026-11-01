@@ -86,6 +86,9 @@ class ReolinkCameraCard extends LitElement {
       show_motion_indicator: true,
       show_microphone: true,
       talk_camera: null, // Reolink Talk slug, e.g. 'doorbell'
+      door_button_entity: null, // Optional HA button for door unlatch
+      quick_reply_entity: null, // Optional HA select for Reolink quick replies
+      quick_reply_message: null, // Optional exact option name; otherwise choose
       show_audio: true,
       show_header: true,
       show_fullscreen: true,
@@ -291,6 +294,52 @@ class ReolinkCameraCard extends LitElement {
     }
   }
 
+  // --- Door controls & Reolink native quick replies ---
+
+  async _openDoor() {
+    const entityId = this.config?.door_button_entity;
+    if (!entityId || !entityId.startsWith("button.")) return;
+    if (!window.confirm("Ouvrir la porte d'entrée ?")) return;
+    try {
+      await this.hass.callService("button", "press", {entity_id: entityId});
+    } catch (err) {
+      console.error("Reolink NVR: door action failed", err);
+      window.alert("Impossible d'ouvrir la porte. Consulte les journaux.");
+    }
+  }
+
+  get _quickReplyOptions() {
+    const entityId = this.config?.quick_reply_entity;
+    const state = entityId && this.hass?.states?.[entityId];
+    return Array.isArray(state?.attributes?.options)
+      ? state.attributes.options.filter((opt) => typeof opt === "string")
+      : [];
+  }
+
+  async _sendQuickReply(option) {
+    const entityId = this.config?.quick_reply_entity;
+    if (!entityId?.startsWith("select.") || !option) return;
+    if (!this._quickReplyOptions.includes(option)) {
+      console.warn("Reolink NVR: quick reply is not a supported option", option);
+      return;
+    }
+    try {
+      await this.hass.callService("select", "select_option", {
+        entity_id: entityId,
+        option,
+      });
+    } catch (err) {
+      console.error("Reolink NVR: quick reply failed", err);
+      window.alert("Impossible de jouer la réponse rapide. Consulte les journaux.");
+    }
+  }
+
+  _onQuickReplyChange(event) {
+    const option = event.target.value;
+    event.target.value = "";
+    this._sendQuickReply(option);
+  }
+
   // --- Touch gestures ---
 
   _handleTap(e) {
@@ -465,6 +514,24 @@ class ReolinkCameraCard extends LitElement {
               ${showMic
                 ? html`<div id="reolink-talk-button-host" class="talk-button-host"></div>`
                 : ""}
+              ${this.config.door_button_entity ? html`
+                <button class="control-btn" @click=${this._openDoor}
+                  title="Ouvrir la porte (confirmation requise)">
+                  <ha-icon icon="mdi:door-open"></ha-icon>
+                </button>
+              ` : ""}
+              ${this.config.quick_reply_entity ? html`
+                <div class="quick-reply-wrap" title="Réponse rapide Reolink">
+                  <ha-icon icon="mdi:message-reply-text"></ha-icon>
+                  <select aria-label="Jouer une réponse rapide" .value=${""}
+                    @change=${this._onQuickReplyChange}>
+                    <option value="" disabled selected>Réponse rapide…</option>
+                    ${this._quickReplyOptions.map(option => html`
+                      <option value=${option}>${option}</option>
+                    `)}
+                  </select>
+                </div>
+              ` : ""}
               ${this.config.show_fullscreen ? html`
               <button
                 class="control-btn"
@@ -776,6 +843,30 @@ class ReolinkCameraCard extends LitElement {
         border-radius: 1px;
       }
 
+      .quick-reply-wrap {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        max-width: 190px;
+        padding: 8px;
+        background: rgba(0, 0, 0, 0.6);
+        border-radius: 12px;
+        color: #fff;
+      }
+      .quick-reply-wrap select {
+        min-width: 0;
+        width: 145px;
+        color: #fff;
+        background: rgba(255, 255, 255, 0.12);
+        border: none;
+        border-radius: 6px;
+        padding: 5px;
+      }
+      .quick-reply-wrap option {
+        color: #111;
+        background: #fff;
+      }
+
       /* PTZ overlay */
       .ptz-overlay {
         display: flex;
@@ -903,6 +994,14 @@ class ReolinkCameraCardEditor extends LitElement {
         selector: { text: {} },
       },
       {
+        name: "door_button_entity",
+        selector: { entity: { domain: "button" } },
+      },
+      {
+        name: "quick_reply_entity",
+        selector: { entity: { domain: "select" } },
+      },
+      {
         name: "show_audio",
         selector: { boolean: {} },
       },
@@ -926,6 +1025,8 @@ class ReolinkCameraCardEditor extends LitElement {
       show_motion_indicator: this._config.show_motion_indicator !== false,
       show_microphone: this._config.show_microphone !== false,
       talk_camera: this._config.talk_camera || "",
+      door_button_entity: this._config.door_button_entity || "",
+      quick_reply_entity: this._config.quick_reply_entity || "",
       show_audio: this._config.show_audio !== false,
       show_header: this._config.show_header !== false,
       show_fullscreen: this._config.show_fullscreen !== false,
@@ -943,6 +1044,8 @@ class ReolinkCameraCardEditor extends LitElement {
             show_motion_indicator: "Show Motion Indicator",
             show_microphone: "Show Reolink Talk Microphone",
             talk_camera: "Reolink Talk Camera Slug (e.g. doorbell)",
+            door_button_entity: "Door Open Button Entity",
+            quick_reply_entity: "Reolink Play Quick Reply Select Entity",
             show_audio: "Show Audio Toggle",
             show_header: "Show Header Bar",
             show_fullscreen: "Show Fullscreen Button",
