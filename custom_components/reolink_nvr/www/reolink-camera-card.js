@@ -4,7 +4,7 @@
  * Features:
  * - WebRTC video via HA's <ha-camera-stream>
  * - PTZ directional pad overlay (translucent, touch-friendly)
- * - Microphone toggle for two-way audio via go2rtc backchannel
+ * - Optional live microphone powered by Reolink Talk (separate integration)
  * - Pinch-to-zoom (CSS transform)
  * - Double-tap fullscreen
  * - Motion indicator badge
@@ -85,6 +85,7 @@ class ReolinkCameraCard extends LitElement {
       ptz: true,
       show_motion_indicator: true,
       show_microphone: true,
+      talk_camera: null, // Reolink Talk slug, e.g. 'doorbell'
       show_audio: true,
       show_header: true,
       show_fullscreen: true,
@@ -238,6 +239,41 @@ class ReolinkCameraCard extends LitElement {
     this._micActive = false;
   }
 
+  // --- Reolink Talk integration ---
+
+  updated() {
+    // Reolink Talk registers its own custom element and authenticates requests.
+    // We only embed the element; we never handle credentials or microphone data.
+    const host = this.shadowRoot?.getElementById("reolink-talk-button-host");
+    if (!host || !this.config?.talk_camera) return;
+
+    if (!customElements.get("reolink-talk-button")) {
+      // Its JS resource may load after ours on the first page visit.
+      if (!this._waitingForTalkButton) {
+        this._waitingForTalkButton = true;
+        customElements.whenDefined("reolink-talk-button").then(() => {
+          this._waitingForTalkButton = false;
+          if (this.isConnected) this.requestUpdate();
+        });
+      }
+      return;
+    }
+
+    let button = host.querySelector("reolink-talk-button");
+    if (!button) {
+      button = document.createElement("reolink-talk-button");
+      button.setConfig({camera: this.config.talk_camera});
+      button.hass = this.hass;
+      host.appendChild(button);
+    } else {
+      if (button._camera !== this.config.talk_camera) {
+        button._stop?.();
+        button.setConfig({camera: this.config.talk_camera});
+      }
+      button.hass = this.hass;
+    }
+  }
+
   // --- Touch gestures ---
 
   _handleTap(e) {
@@ -327,7 +363,9 @@ class ReolinkCameraCard extends LitElement {
     }
 
     const showPtz = this.config.ptz && this._hasPtz;
-    const showMic = this.config.show_microphone && this._hasSpeaker;
+    // The legacy mic button cannot send sound to the NVR. Only expose the
+    // working Reolink Talk control when an explicit camera slug is configured.
+    const showMic = this.config.show_microphone && !!this.config.talk_camera;
     const motionActive = this._motionDetected;
 
     const videoTransform = `scale(${this._scale}) translate(${this._translateX}px, ${this._translateY}px)`;
@@ -391,21 +429,7 @@ class ReolinkCameraCard extends LitElement {
               </button>
               ` : ""}
               ${showMic
-                ? html`
-                    <button
-                      class="control-btn mic-btn ${this._micActive
-                        ? "active"
-                        : ""}"
-                      @click=${this._toggleMic}
-                      title="Two-way audio"
-                    >
-                      <ha-icon
-                        icon=${this._micActive
-                          ? "mdi:microphone"
-                          : "mdi:microphone-off"}
-                      ></ha-icon>
-                    </button>
-                  `
+                ? html`<div id="reolink-talk-button-host" class="talk-button-host"></div>`
                 : ""}
               ${this.config.show_fullscreen ? html`
               <button
@@ -676,6 +700,14 @@ class ReolinkCameraCard extends LitElement {
         }
       }
 
+      .talk-button-host {
+        width: 48px;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
       /* PTZ overlay */
       .ptz-overlay {
         display: flex;
@@ -796,6 +828,10 @@ class ReolinkCameraCardEditor extends LitElement {
         selector: { boolean: {} },
       },
       {
+        name: "talk_camera",
+        selector: { text: {} },
+      },
+      {
         name: "show_audio",
         selector: { boolean: {} },
       },
@@ -818,6 +854,7 @@ class ReolinkCameraCardEditor extends LitElement {
       ptz: this._config.ptz !== false,
       show_motion_indicator: this._config.show_motion_indicator !== false,
       show_microphone: this._config.show_microphone !== false,
+      talk_camera: this._config.talk_camera || "",
       show_audio: this._config.show_audio !== false,
       show_header: this._config.show_header !== false,
       show_fullscreen: this._config.show_fullscreen !== false,
@@ -833,7 +870,8 @@ class ReolinkCameraCardEditor extends LitElement {
             entity: "Camera Entity",
             ptz: "Show PTZ Controls",
             show_motion_indicator: "Show Motion Indicator",
-            show_microphone: "Show Microphone Button",
+            show_microphone: "Show Reolink Talk Microphone",
+            talk_camera: "Reolink Talk Camera Slug (e.g. doorbell)",
             show_audio: "Show Audio Toggle",
             show_header: "Show Header Bar",
             show_fullscreen: "Show Fullscreen Button",
