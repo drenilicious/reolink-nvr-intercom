@@ -37,6 +37,7 @@ class ReolinkCameraCard extends LitElement {
       hass: { type: Object },
       config: { type: Object },
       _fullscreen: { type: Boolean },
+      _fitFullscreen: { type: Boolean },
       _micActive: { type: Boolean },
       _audioMuted: { type: Boolean },
       _showPtz: { type: Boolean },
@@ -49,6 +50,7 @@ class ReolinkCameraCard extends LitElement {
   constructor() {
     super();
     this._fullscreen = false;
+    this._fitFullscreen = false;
     this._micActive = false;
     this._audioMuted = true;
     this._showPtz = false;
@@ -375,6 +377,10 @@ class ReolinkCameraCard extends LitElement {
     }
   }
 
+  _toggleFullscreenFit() {
+    this._fitFullscreen = !this._fitFullscreen;
+  }
+
   _onDialogCancel(event) {
     // Esc on desktop must restore the inline card, not hide it.
     event.preventDefault();
@@ -465,7 +471,7 @@ class ReolinkCameraCard extends LitElement {
 
     return html`
       <ha-card>
-        <dialog class="viewer-dialog" open @cancel=${this._onDialogCancel}>
+        <dialog class="viewer-dialog ${this._fitFullscreen ? "fit-image" : ""}" open @cancel=${this._onDialogCancel}>
         <div
           class="card-container"
           @touchstart=${this._handleTouchStart}
@@ -531,6 +537,12 @@ class ReolinkCameraCard extends LitElement {
                     ? "mdi:fullscreen-exit"
                     : "mdi:fullscreen"}
                 ></ha-icon>
+              </button>
+              ` : ""}
+              ${this._fullscreen ? html`
+              <button class="control-btn" @click=${this._toggleFullscreenFit}
+                title=${this._fitFullscreen ? "Agrandir l'image" : "Afficher toute l'image"}>
+                <ha-icon icon=${this._fitFullscreen ? "mdi:fit-to-screen" : "mdi:magnify-minus-outline"}></ha-icon>
               </button>
               ` : ""}
               ${this._scale > 1.1
@@ -718,6 +730,16 @@ class ReolinkCameraCard extends LitElement {
         width: 100%;
         height: 100%;
         object-fit: contain;
+      }
+
+      /* Portrait phones: enlarge the full image while allowing users to
+         switch back to letterboxed, uncropped viewing. Cropping is intentional
+         and never changes the stream or camera audio controls. */
+      @media (orientation: portrait) and (max-width: 700px) {
+        .viewer-dialog:modal:not(.fit-image) .video-container {
+          transform: translate(-50%, -50%) scale(1.85) !important;
+          transform-origin: center center;
+        }
       }
 
       /* Header */
