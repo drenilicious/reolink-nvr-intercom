@@ -86,6 +86,7 @@ class ReolinkCameraCard extends LitElement {
       show_motion_indicator: true,
       show_microphone: true,
       talk_camera: null, // Reolink Talk slug, e.g. 'doorbell'
+      stream_select_entity: null, // Select entity controlling stream quality
       door_button_entity: null, // Optional HA button for door unlatch
       quick_reply_entity: null, // Optional HA select for Reolink quick replies
       quick_reply_message: null, // Optional exact option name; otherwise choose
@@ -149,10 +150,11 @@ class ReolinkCameraCard extends LitElement {
   }
 
   get _streamQuality() {
+    const selectEntity = this.config?.stream_select_entity;
+    const selected = selectEntity && this.hass?.states?.[selectEntity]?.state;
+    if (selected === "main" || selected === "sub") return selected;
     const state = this._stateObj;
-    return state && state.attributes
-      ? state.attributes.stream_quality || "sub"
-      : "sub";
+    return state?.attributes?.stream_quality || "sub";
   }
 
   get _cameraName() {
@@ -282,9 +284,10 @@ class ReolinkCameraCard extends LitElement {
     if (realButton && this._talkObservedButton !== realButton) {
       this._talkStateObserver?.disconnect();
       this._talkObservedButton = realButton;
-      const sync = () => host.classList.toggle(
-        "talk-live", Boolean(button._recording && button._wsReady)
-      );
+      const sync = () => {
+        host.classList.toggle("talk-live", Boolean(button._recording && button._wsReady));
+        host.classList.toggle("talk-connecting", Boolean(button._recording && !button._wsReady));
+      };
       this._talkStateObserver = new MutationObserver(sync);
       this._talkStateObserver.observe(realButton, {
         attributes: true,
@@ -418,16 +421,27 @@ class ReolinkCameraCard extends LitElement {
 
   // --- Stream quality ---
 
-  _toggleStreamQuality() {
-    const base = this.config.entity.replace("camera.", "");
-    const pattern = base.replace("_camera", "");
-    const selectEntity = `select.${pattern}_stream_quality`;
-
-    const newQuality = this._streamQuality === "sub" ? "main" : "sub";
-    this.hass.callService("select", "select_option", {
-      entity_id: selectEntity,
-      option: newQuality,
-    });
+  async _toggleStreamQuality() {
+    // Explicit entity avoids relying on generated entity IDs (which can vary
+    // depending on translations and entity registry naming).
+    const selectEntity = this.config?.stream_select_entity;
+    if (!selectEntity || !this.hass?.states?.[selectEntity]) {
+      console.warn("Reolink NVR: set stream_select_entity to the correct select entity");
+      return;
+    }
+    const next = this._streamQuality === "sub" ? "main" : "sub";
+    if (!(this.hass.states[selectEntity].attributes.options || []).includes(next)) {
+      console.warn("Reolink NVR: stream option not available", next);
+      return;
+    }
+    try {
+      await this.hass.callService("select", "select_option", {
+        entity_id: selectEntity,
+        option: next,
+      });
+    } catch (err) {
+      console.error("Reolink NVR: stream quality change failed", err);
+    }
   }
 
   // --- Render ---
@@ -830,6 +844,16 @@ class ReolinkCameraCard extends LitElement {
          The actual button and its status colors belong to Reolink Talk. */
       .talk-button-host reolink-talk-button button {
         position: relative;
+        width: 44px !important;
+        height: 44px !important;
+        background: rgba(255,255,255,0.2) !important;
+        backdrop-filter: blur(4px);
+      }
+      .talk-button-host.talk-connecting reolink-talk-button button {
+        background: rgba(58,123,253,0.85) !important;
+      }
+      .talk-button-host.talk-live reolink-talk-button button {
+        background: rgba(220,40,40,0.9) !important;
       }
 
       .talk-button-host:not(.talk-live) reolink-talk-button button::after {
@@ -994,6 +1018,10 @@ class ReolinkCameraCardEditor extends LitElement {
         selector: { text: {} },
       },
       {
+        name: "stream_select_entity",
+        selector: { entity: { domain: "select" } },
+      },
+      {
         name: "door_button_entity",
         selector: { entity: { domain: "button" } },
       },
@@ -1025,6 +1053,7 @@ class ReolinkCameraCardEditor extends LitElement {
       show_motion_indicator: this._config.show_motion_indicator !== false,
       show_microphone: this._config.show_microphone !== false,
       talk_camera: this._config.talk_camera || "",
+      stream_select_entity: this._config.stream_select_entity || "",
       door_button_entity: this._config.door_button_entity || "",
       quick_reply_entity: this._config.quick_reply_entity || "",
       show_audio: this._config.show_audio !== false,
@@ -1044,6 +1073,7 @@ class ReolinkCameraCardEditor extends LitElement {
             show_motion_indicator: "Show Motion Indicator",
             show_microphone: "Show Reolink Talk Microphone",
             talk_camera: "Reolink Talk Camera Slug (e.g. doorbell)",
+            stream_select_entity: "Video Stream Quality Select Entity",
             door_button_entity: "Door Open Button Entity",
             quick_reply_entity: "Reolink Play Quick Reply Select Entity",
             show_audio: "Show Audio Toggle",
