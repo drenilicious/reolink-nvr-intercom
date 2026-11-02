@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/reolink-intercom-logo.svg" alt="Reolink Intercom — house, camera lens and wireless signal" width="700"></p>
+
 # Reolink NVR Intercom
 
 **An experimental Home Assistant intercom experience for Reolink cameras connected through a Reolink NVR.**
