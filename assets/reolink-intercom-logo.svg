@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 320" role="img" aria-labelledby="title desc">
+<title id="title">Reolink Intercom</title>
+<desc id="desc">Blue house with camera lens and wireless signal, followed by Reolink Intercom wordmark.</desc>
+<defs>
+ <linearGradient id="roof" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#63d5fb"/><stop offset=".48" stop-color="#058bf0"/><stop offset="1" stop-color="#0560c8"/></linearGradient>
+ <linearGradient id="house" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#1bafff"/><stop offset="1" stop-color="#0063d3"/></linearGradient>
+ <radialGradient id="lens"><stop stop-color="#93e2ff"/><stop offset=".23" stop-color="#0d4b9c"/><stop offset=".48" stop-color="#061c45"/><stop offset=".62" stop-color="#1172b7"/><stop offset=".84" stop-color="#051b39"/><stop offset="1" stop-color="#0c4072"/></radialGradient>
+ <linearGradient id="signal" x1="0" y1="1" x2=".6" y2="0"><stop stop-color="#44c4f4"/><stop offset="1" stop-color="#78dffc"/></linearGradient>
+</defs>
+<g transform="translate(18 17)">
+ <path d="M76 148 218 27 370 148 349 171 218 69 97 171Z" fill="url(#roof)"/>
+ <path d="M92 148V292H350V148L218 51Z" fill="url(#house)"/>
+ <path d="M116 81H155V129L116 160Z" fill="#0784e8"/>
+ <path d="M218 51 350 148V292H218Z" fill="#006acb" opacity=".28"/>
+ <circle cx="219" cy="191" r="94" fill="#fff"/>
+ <circle cx="219" cy="191" r="83" fill="#062a50"/>
+ <circle cx="219" cy="191" r="76" fill="#0f5f9c"/>
+ <circle cx="219" cy="191" r="66" fill="url(#lens)"/>
+ <circle cx="219" cy="191" r="39" fill="#041a3d" stroke="#58a7dc" stroke-width="7"/>
+ <circle cx="219" cy="191" r="18" fill="#0a3b7e"/>
+ <ellipse cx="194" cy="148" rx="27" ry="10" transform="rotate(-38 194 148)" fill="#b2e9ff" opacity=".52"/>
+ <path d="M376 126Q425 186 376 251" stroke="url(#signal)" stroke-width="19" fill="none" stroke-linecap="round"/>
+ <path d="M411 91Q484 187 411 286" stroke="url(#signal)" stroke-width="20" fill="none" stroke-linecap="round"/>
+ <path d="M447 62Q548 185 447 314" stroke="url(#signal)" stroke-width="21" fill="none" stroke-linecap="round"/>
+</g>
+<g font-family="Arial, Helvetica, sans-serif">
+ <text x="591" y="162" fill="#063368" font-size="93" font-weight="800" letter-spacing="2">REOLINK</text>
+ <text x="592" y="255" fill="#0d1b29" font-size="76" font-weight="400" letter-spacing="3">INTERCOM</text>
+</g>
+</svg>
