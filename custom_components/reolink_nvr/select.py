@@ -8,6 +8,7 @@ from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import DEFAULT_STREAM, DOMAIN, STREAM_OPTIONS
 from .coordinator import ReolinkNvrCoordinator
@@ -65,24 +66,13 @@ class ReolinkStreamQualitySelect(ReolinkNvrEntity, SelectEntity):
         """Change the stream quality."""
         self._current_option = option
 
-        # Update the associated camera entity's stream quality
-        entity_registry = self.hass.helpers.entity_registry.async_get(self.hass)
-        camera_unique_id = f"{self.coordinator.nvr_serial}_{self._channel}_camera"
-        camera_entry = entity_registry.async_get_entity_id(
-            "camera", DOMAIN, camera_unique_id
+        # Notify the matching camera entity directly. HomeAssistant has no
+        # `hass.helpers` attribute, and the old event had no listener.
+        signal = (
+            f"{DOMAIN}_stream_quality_"
+            f"{self.coordinator.config_entry.entry_id}_{self._channel}"
         )
-        if camera_entry:
-            camera_state = self.hass.states.get(camera_entry)
-            if camera_state:
-                # Signal the camera to update its stream quality
-                self.hass.bus.async_fire(
-                    f"{DOMAIN}_stream_quality_changed",
-                    {
-                        "entity_id": camera_entry,
-                        "channel": self._channel,
-                        "quality": option,
-                    },
-                )
+        async_dispatcher_send(self.hass, signal, option)
 
         self.async_write_ha_state()
 

@@ -1,217 +1,150 @@
-# Reolink NVR Integration for Home Assistant
+<p align="center"><img src="assets/reolink-intercom-logo.svg" alt="Reolink Intercom — house, camera lens and wireless signal" width="700"></p>
 
-[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
-[![GitHub Release](https://img.shields.io/github/v/release/dsorlov/reolinknvr)](https://github.com/dsorlov/reolinknvr/releases)
-[![License](https://img.shields.io/github/license/dsorlov/reolinknvr)](LICENSE)
+# Reolink NVR Intercom
 
-A lean, NVR-focused Home Assistant custom integration for **Reolink RLN36** and other NVRs in the same family (RLN8, RLN16, RLN36). Installed as a [HACS custom repository](https://hacs.xyz/docs/faq/custom_repositories/) — this integration is **not** part of the default HACS store.
+**An experimental Home Assistant intercom experience for Reolink cameras connected through a Reolink NVR.**
 
-## Features
+[![HACS custom repository](https://img.shields.io/badge/HACS-Custom%20repository-41BDF5)](https://www.hacs.xyz/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Status: development](https://img.shields.io/badge/Status-Development-orange)](https://github.com/drenilicious/reolink-nvr-intercom/pulls)
 
-- **WebRTC streaming** — Sub-stream by default (~512 kbps) for low bandwidth; switch to main stream on demand. Powered by Home Assistant's built-in go2rtc (zero-config WebRTC with ~0.5 s latency).
-- **Two-way audio** — Microphone button in the custom camera card streams your voice to the camera speaker via go2rtc's RTSP backchannel (requires HA over HTTPS).
-- **NVR events as HA triggers** — Motion, person, vehicle, pet, and doorbell detections fire `reolink_nvr_event` events. Use them in automations. State changes detected via polling.
-- **PTZ controls** — Directional buttons, zoom, presets, patrol toggle, and speed control for PTZ-capable cameras.
-- **Custom Lovelace cards** — Touch-friendly camera card with PTZ overlay and mic, NVR grid card, and a compact PTZ card feature for tile/entity cards.
-- **Multi-NVR support** — Add as many Reolink NVRs as you need, each as a separate config entry.
-- **Speaker volume control** — Adjust camera speaker volume for two-way audio.
+Reolink NVR Intercom is a community fork of [DSorlov/reolinknvr](https://github.com/dsorlov/reolinknvr). It combines an NVR-oriented Home Assistant integration with a customizable camera card designed for a **video doorbell**: watch live video, listen, speak, and operate Home Assistant devices such as a smart lock.
 
-## Supported Models
+> **Development status:** Work in progress, tested on one Home Assistant Green installation with a Reolink RLN16-410 NVR and a Reolink Video Doorbell PoE connected through the NVR. This is **not** an official Reolink integration, a stable release, or a standalone replacement for the official Reolink mobile app.
 
-| NVR Model | Channels | Status |
-|-----------|----------|--------|
-| RLN36     | 36       | ✅ Tested |
-| RLN16     | 16       | ✅ Expected to work |
-| RLN8      | 8        | ✅ Expected to work |
+## What works today
 
-Any Reolink NVR with an HTTP API (JSON over HTTPS) should work. This integration uses a custom direct HTTP API client — no third-party libraries required.
+| Capability | Current state |
+| --- | --- |
+| Camera view with sound | Working in the test installation |
+| Live microphone / hang up | Working on iPhone via the **separately installed** [Reolink Talk](https://github.com/matthewholm/ha-reolink-talk) integration |
+| Mobile-friendly card and fullscreen | Working in current iPhone and Firefox testing; still under refinement |
+| Nuki door-unlatch button | Configurable through a Home Assistant button entity; requires confirmation; end-to-end action still to be validated |
+| Reolink quick replies | UI supported, but **not working** in our NVR test: the official Reolink select reports `options: []` |
+| Motion badge | Available; the badge's automatic entity matching may require further adjustment |
+| Other NVR cameras, PTZ and grid card | Inherited from upstream; not yet comprehensively re-tested in this fork |
 
-## Installation
+The integration still uses the internal Home Assistant domain **`reolink_nvr`**. It **cannot be installed alongside the original DSorlov integration** using the same domain. It *can* coexist with the official Home Assistant **Reolink** integration (`reolink`).
 
-### HACS (Recommended)
+## Architecture
 
-1. Open Home Assistant and go to **HACS** → **Integrations**.
-2. Click the **⋮** menu (top right) and select **Custom repositories**.
-3. Add the repository URL:
-   ```
-   https://github.com/dsorlov/reolinknvr
-   ```
-4. Set the category to **Integration** and click **Add**.
-5. Search for **Reolink NVR** in HACS and click **Download**.
-6. **Restart Home Assistant**.
+This is deliberately a combination of existing pieces:
 
-### Manual Installation
+- **Reolink NVR Intercom / `reolink_nvr`** — the forked backend and Lovelace camera card.
+- **[Official Home Assistant Reolink integration](https://www.home-assistant.io/integrations/reolink/)** — provides camera entities and additional entities (doorbell press, quick replies, motion).
+- **[Reolink Talk (Two-Way Audio)](https://github.com/matthewholm/ha-reolink-talk)** — independent integration providing live microphone transmission and its `reolink-talk-button` frontend element.
 
-1. Download the [latest release](https://github.com/dsorlov/reolinknvr/releases) and extract it.
-2. Copy the `custom_components/reolink_nvr` folder into your Home Assistant `config/custom_components/` directory.
-3. **Restart Home Assistant**.
+**Live talkback is not provided by this repository alone.** Our custom card embeds Reolink Talk's button. We do not redistribute its code or implement its audio protocol here.
 
-## Configuration
+Neither go2rtc nor a Windows Reolink CLI process is needed for **Reolink Talk's microphone path**. Video playback uses Home Assistant's normal camera streaming capabilities.
 
-1. Go to **Settings** → **Devices & Services** → **Add Integration**.
-2. Search for **Reolink NVR**.
-3. Enter your NVR connection details:
-   - **Host**: IP address or hostname of the NVR
-   - **Port**: HTTP/HTTPS port (default: 443)
-   - **Username**: Admin username
-   - **Password**: Password (max 31 characters — [Reolink firmware limitation](https://github.com/home-assistant/core/issues/139710))
-   - **Use HTTPS**: Toggle if your NVR requires HTTPS (enabled by default)
-4. Click **Submit**. The integration will connect, discover all camera channels, and create entities.
+## Install for testing
 
-### Options
+**Back up your Home Assistant configuration first.** This branch is experimental.
 
-After setup, click **Configure** on the integration to adjust:
+1. Install the [official Reolink integration](https://www.home-assistant.io/integrations/reolink/) and confirm your NVR/doorbell camera entities work.
+2. Install [Reolink Talk](https://github.com/matthewholm/ha-reolink-talk) as a HACS custom **Integration**, restart Home Assistant, and configure it against the **official Reolink** integration. Confirm live talkback works independently before using this card.
+3. Add **`https://github.com/drenilicious/reolink-nvr-intercom`** to HACS as a custom **Integration** repository. **Important:** HACS normally installs a repository's default branch/release. The features described in this README are currently developed on [`feature/reolink-talk-card-integration`](https://github.com/drenilicious/reolink-nvr-intercom/tree/feature/reolink-talk-card-integration), not necessarily on `main`. To test the branch, use its files explicitly until the changes are reviewed and merged.
+4. If using the development branch manually, place its **`custom_components/reolink_nvr`** directory in `<config>/custom_components/reolink_nvr`, replacing an existing installation of this fork. Restart Home Assistant to load Python changes.
+5. Add a manual Lovelace card using the example below. After changing only frontend JavaScript, a dashboard refresh is usually enough; browser/app caching may require a full reload.
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| **Default stream quality** | `sub` | `sub` (low bandwidth ~512 kbps) or `main` (full quality) |
-| **Polling interval** | 60 s | How often to poll NVR state |
+### Camera card example
 
-## Entities Created
-
-For each connected camera channel on the NVR:
-
-| Platform | Entity | Description |
-|----------|--------|-------------|
-| `camera` | Camera stream | WebRTC live stream (sub or main) + still snapshots |
-| `binary_sensor` | Motion | Motion detection state |
-| `binary_sensor` | Person | AI person detection |
-| `binary_sensor` | Vehicle | AI vehicle detection |
-| `binary_sensor` | Pet | AI pet detection |
-| `binary_sensor` | Doorbell | Doorbell press (if applicable) |
-| `select` | Stream Quality | Switch between sub-stream and main-stream |
-| `button` | PTZ Left/Right/Up/Down/Zoom In/Zoom Out/Stop | PTZ directional controls *(PTZ cameras only)* |
-| `number` | PTZ Speed | PTZ movement speed 1–64 *(PTZ cameras only)* |
-| `number` | Speaker Volume | Camera speaker volume 0–100 *(cameras with speaker only)* |
-| `select` | PTZ Preset | Move to a saved PTZ preset position *(PTZ cameras only)* |
-| `switch` | PTZ Patrol | Toggle automatic PTZ patrol *(PTZ cameras only)* |
-
-## Custom Lovelace Cards
-
-The integration bundles three custom Lovelace cards (auto-registered, no manual resource import needed):
-
-### `reolink-camera-card` — Single Camera View
-
-Full-featured camera card with WebRTC video, PTZ controls, and two-way audio.
+The following example matches one **specific test installation**. **Entity IDs are local examples**, not defaults guaranteed on other systems.
 
 ```yaml
+# Reolink NVR Intercom — example doorbell card
 type: custom:reolink-camera-card
-entity: camera.reolink_nvr_my_nvr_ch01_sub
-ptz: true
-show_motion_indicator: true
-show_microphone: true
+
+# Official Reolink camera entity: "Net" / Clear / main (higher quality)
+entity: camera.doorbell_net
+
+# Incoming sound and live talk via separate Reolink Talk integration
 show_audio: true
+show_microphone: true
+talk_camera: doorbell
+
+# Optional Home Assistant button entity (confirmation before pressing)
+door_button_entity: button.nukifront_unlatch
+
+# Optional official Reolink select; may have no options behind some NVRs
+quick_reply_entity: select.doorbell_lire_un_message_de_reponse_rapide
+
+ptz: false
 show_header: true
 show_fullscreen: true
-```
-
-**Touch gestures:**
-- **Double-tap** → Fullscreen
-- **Pinch** → Digital zoom
-- **PTZ pad** → Hold to move continuously, release to stop
-- **Mic button** → Tap to toggle two-way audio
-
-### `reolink-camera-grid-card` — NVR Overview
-
-Grid showing all NVR camera channels. Tap a cell to expand to the full camera card.
-
-```yaml
-type: custom:reolink-camera-grid-card
-columns: 3
 show_motion_indicator: true
-allow_fullscreen: true
-show_name: true
-padding: 4
-gap: 4
-aspect_ratio: "16/9"
 ```
 
-Set `columns: 0` for auto-sizing (2 on phone, 3–4 on tablet).
+**Configuration notes**
 
-### `reolink-ptz-feature` — PTZ Card Feature
+- `entity` is a Home Assistant camera entity. The example uses **`camera.doorbell_net`**, the official Reolink **Clear/Net** stream. **`fluide`** is the lower-bandwidth **Fluent** profile.
+- `talk_camera` is the camera name/slug resolved by the separate Reolink Talk integration. It is **not** a Home Assistant entity ID.
+- `door_button_entity` must reference a valid Home Assistant `button.*` entity. It triggers a `button.press` service call **after a confirmation dialog**. Only provide this to people who are allowed to open the door.
+- `quick_reply_entity` is an optional `select.*` entity from the official Reolink integration. The card can show the options that entity provides; it cannot recover missing messages.
+- The obsolete SD/HD badge was removed from this card: select the intended camera stream explicitly instead.
+- The fullscreen control uses a modal overlay to avoid iOS dashboard stacking problems. In portrait on small phones, an additional zoom toggle enlarges or fits the image. Enlargement may crop the sides.
+- For browser microphone access, use Home Assistant through a **secure HTTPS origin** and grant microphone permission when prompted.
 
-Compact PTZ controls that attach to tile or picture-entity cards.
+### Camera, PTZ and grid features
+
+The upstream project also includes an NVR camera grid card and PTZ feature:
+
+- `custom:reolink-camera-grid-card`
+- `custom:reolink-ptz-feature`
+
+These features remain inherited from [the upstream implementation](https://github.com/dsorlov/reolinknvr). They have not been fully validated as part of our intercom testing.
+
+## Known limitations
+
+### Quick replies show no messages
+
+On our test setup, the official Reolink entity `select.doorbell_lire_un_message_de_reponse_rapide` reports:
 
 ```yaml
-type: tile
-entity: camera.reolink_nvr_my_nvr_ch01_sub
-features:
-  - type: custom:reolink-ptz-feature
-    show_zoom: true
-    show_presets: true
+state: unknown
+options: []
 ```
 
-## Automation Events
+Although four replies are visible and playable in the Reolink mobile app, neither a reload of the official Reolink integration nor querying `reolink-cli audio replies` against the NVR returned the usable messages. The CLI returned a single disabled, unnamed entry with ID `0`. We **have not determined** whether this is an NVR firmware, camera protocol, or integration limitation.
 
-The integration fires `reolink_nvr_event` on the HA event bus when detections occur:
+Until this is resolved, the quick-reply menu cannot send a reply. Avoid guessing or hardcoding reply IDs.
 
-```yaml
-trigger:
-  - platform: event
-    event_type: reolink_nvr_event
-    event_data:
-      type: person
-      channel_name: Front Door
-```
+### Live microphone
 
-**Event data:**
+Reolink Talk must be installed and configured independently. The fork's **older go2rtc/WebRTC microphone implementation did not work** in this test and is not the supported talkback path. Reolink Talk must resolve the camera correctly; this has been validated on the test iPhone but not broadly across NVR models.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `type` | string | `motion`, `person`, `vehicle`, `pet`, `doorbell`, `hdd_error` |
-| `channel` | int | Channel index (0-based) |
-| `channel_name` | string | Camera name as configured on the NVR |
-| `nvr_name` | string | NVR display name |
-| `nvr_serial` | string | NVR serial number |
-| `timestamp` | string | ISO 8601 UTC timestamp |
+### Device notifications
 
-## Requirements
+A doorbell press entity (for example `binary_sensor.doorbell_visiteur`) can be used to build Home Assistant automations for phone/tablet notifications. A complete incoming-call interface and cross-device orchestration are **future work**, not features already provided by this repository.
 
-- **Home Assistant** 2024.11.0 or newer (go2rtc built-in)
-- **HACS** installed for easy installation
-- **Network**: NVR must be reachable from HA on ports 80/443 (HTTP/HTTPS) and 554 (RTSP)
-- **HTTPS on HA** required for two-way audio (browser microphone needs secure context)
-- **NVR password** must be 31 characters or fewer
+### Other limitations
 
-## Troubleshooting
+- The internal integration domain and installation structure are inherited from upstream.
+- Browser and iOS/Android fullscreen behavior can differ; please report device-specific problems.
+- Video stream quality and the official Reolink camera's `Net` / `Fluide` profiles should not be confused with `reolink_nvr`'s own `main` / `sub` select.
+- Model support beyond the test environment is not independently confirmed.
 
-### Cannot connect to NVR
+## About the project
 
-- Verify the NVR IP address and port (default 443 for HTTPS).
-- Ensure HA can reach the NVR on ports 80/443 and 554.
-- Try toggling the **Use HTTPS** option.
+This project started as a personal Home Assistant experiment by **[drenilicious](https://github.com/drenilicious)**, an accountant from Belgium with absolutely no advanced coding skills, a slightly unreasonable passion for Home Assistant, and ChatGPT as his coding buddy..
 
-### Invalid authentication
+A simple idea grew into a challenge: bring the Reolink doorbell's live video, two-way audio and smart-home door controls together in one practical dashboard. The philisophy that drives this project: If something doesn't exist, we'll build it. If it breaks, we'll fix it. Eventually.
 
-- Check username and password.
-- **Password must be 31 characters or fewer.** Longer passwords fail on both HTTP API and Baichuan protocol. Change it in the Reolink app/web UI.
-- If you have non-Reolink ONVIF cameras on the NVR, they may cause auth issues. Try removing them.
+Much of the development and debugging is done in collaboration with **ChatGPT**, as a coding assistant — or, less formally, a coding buddy. The project owner provides the ideas, tests everything on real hardware, reports what works (and what breaks), and makes the decisions. AI-assisted code is reviewed and tested iteratively; it isn't assumed to be correct just because it compiles.
 
-### Stream not loading / high latency
+**Powered by curiosity, coffee, plenty of trial and error, and one increasingly busy doorbell.** 😄
 
-- Ensure go2rtc is working (check **Settings** → **System** → **Repairs**).
-- The default sub-stream uses H.264 which go2rtc passes through without transcoding.
-- If using a reverse proxy, ensure WebSocket connections are allowed.
+## Contributing / feedback
 
-### Two-way audio not working
+Issues and pull requests for **this fork** belong at [drenilicious/reolink-nvr-intercom](https://github.com/drenilicious/reolink-nvr-intercom/issues). Please include the Home Assistant version, NVR model and firmware, camera model, relevant logs **with passwords, tokens, serial numbers, and network details removed**, and how to reproduce the problem.
 
-- Home Assistant **must be served over HTTPS** (browser requires secure context for microphone access).
-- The camera must have a built-in speaker (`has_speaker` attribute on the camera entity).
-- Check browser permissions for microphone access.
+Development currently takes place in the [intercom integration pull request](https://github.com/drenilicious/reolink-nvr-intercom/pull/3).
 
-### PTZ not working
+## Credits and license
 
-- Only PTZ-capable cameras show PTZ entities. Check `ptz_supported` attribute on the camera entity.
-- Some cameras require specific firmware for full PTZ support.
+This project is derived from [**DSorlov/reolinknvr**](https://github.com/dsorlov/reolinknvr), created by **Daniel Sörlöv**. Original copyright and MIT license terms are preserved in [LICENSE](LICENSE).
 
-## Coexistence with Official Integration
+Live audio functionality is provided by the separately installed [**matthewholm/ha-reolink-talk**](https://github.com/matthewholm/ha-reolink-talk) project. The Home Assistant official [Reolink integration](https://www.home-assistant.io/integrations/reolink/) also provides camera entities used in the examples.
 
-This integration uses the domain `reolink_nvr`, which does **not** conflict with the official `reolink` integration. You can run both simultaneously if needed, though configuring the same NVR in both is not recommended.
-
-## Contributing
-
-Contributions are welcome! Please open an issue or pull request on [GitHub](https://github.com/dsorlov/reolinknvr).
-
-## License
-
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+This fork is an independent community project and is not affiliated with or endorsed by Reolink, Home Assistant, or the upstream maintainers.

@@ -10,6 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .const import DEFAULT_STREAM, DOMAIN, STREAM_MAIN, STREAM_SUB
 from .coordinator import ReolinkNvrCoordinator
@@ -55,6 +56,17 @@ class ReolinkNvrCamera(ReolinkNvrEntity, Camera):
             "stream_default", DEFAULT_STREAM
         )
         self._is_on = True
+
+    async def async_added_to_hass(self) -> None:
+        """Listen for stream profile changes from our select entity."""
+        await super().async_added_to_hass()
+        signal = (
+            f"{DOMAIN}_stream_quality_"
+            f"{self.coordinator.config_entry.entry_id}_{self._channel}"
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, signal, self.set_stream_quality)
+        )
 
     @property
     def is_on(self) -> bool:
